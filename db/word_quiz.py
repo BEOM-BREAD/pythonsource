@@ -22,13 +22,29 @@ cursor = conn.cursor()
 
 def load_words_from_csv(path="./words.csv"):
     '''csv 파일을 읽어서 튜플 리스트로 반환'''
+    pairs = []
     # [{wife,아내},{apple,사과}]
+    with open(path,"r",encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            pairs.append((row['word'].strip(), row.get('meaning').strip()))
+    return pairs
 
 def seed_words_if_empty():
     '''words 테이블이 비어 있으면 csv 파일 내용을 읽어서 넣기'''
+    cursor.execute("select count(*) from words")
+    count = cursor.fetchone()[0]
 
-    load_words_from_csv(path='')
+    if count > 0:
+        return
+
+    pairs = load_words_from_csv()
     # insert
+    sql = "insert into words(word,meaning) values(:1,:2)"
+    cursor.executemany(sql,pairs)
+    conn.commit()
+
+    print(f"csv 단어 데이터 {cursor.rowcount}개를 등록했습니다\n")
 
 def run_quiz():
     '''
@@ -39,6 +55,57 @@ def run_quiz():
     4) 답변입력받은 후 정답 맞는지 확인
     5) 최종 결과 입력
     '''
+    cursor.execute("select word,meaning from words")
+    all_words = cursor.fetchall()
+
+    # 정답 개수
+    correct = 0
+    # 문제 개수
+    total = 5
+
+    questions = random.sample(all_words, total)
+
+    for idx, (word,meaning) in enumerate(questions, start=1):
+        # distractors = []
+        # for w,m in all_words:
+        #     if w != word:
+        #         distractors.append(m)
+        distractors = [m for w,m in all_words if w != word]
+        random.shuffle(distractors)
+        # 보기 생성
+        choices = distractors[:3] + [meaning]
+        # 항상 같은 번호가 정답이 안 되도록 섞기
+        random.shuffle(choices)
+        # choices = ['아내', '비행기', '사과', '자전거']
+
+        # 문제 출제
+        print(f"Question #{idx} : {word}의 뜻은? ")
+
+        # 보기 출제
+        for i , c in enumerate(choices, start=1):
+            print(f" {i}. {c}")
+
+        # 정답 입력 받기 => 1 or 2 => 번호
+        answer = input("정답 번호 입력: ").strip()
+
+        # 정답 사용자가 입력한 답과 비교
+        try:
+            selected = choices[int(answer) - 1]
+        except:
+            selected = None
+
+        if selected == meaning:
+            print("Pass!!\n")
+            correct += 1
+        else:
+            print(f"Wrong!! 정답 : {meaning}\n")
+
+    print(f"결과 : {correct}개 / {total}개 정답\n")
+    # 결과물 테이블에 저장하기
+    sql = "insert into quiz_records(total,correct,regdate) values(:1,:2,sysdate)"
+    cursor.execute(sql,(total,correct))
+    conn.commit()
+
 
 if __name__ == "__main__":
     try:
